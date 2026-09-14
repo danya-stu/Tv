@@ -5,27 +5,14 @@ using PotionCraft.Core;
 
 namespace PotionCraft.Tests.Editor
 {
-	/// <summary>
-	/// Deterministic stand-in for a real ad SDK, so AdRewardController's
-	/// orchestration logic can be tested without Unity, network access, or
-	/// any actual ad provider.
-	/// </summary>
-	private sealed class FakeRewardedAdService : IRewardedAdService
-	{
-		public bool IsReady { get; set; } = true;
-		public bool NextResultIsWatched { get; set; } = true;
-		public int ShowCallCount { get; private set; }
-
-		public void Show(Action<bool> onComplete)
-		{
-			ShowCallCount++;
-			onComplete?.Invoke(NextResultIsWatched);
-		}
-	}
-
 	[TestFixture]
 	public class AdRewardControllerTests
 	{
+		/// <summary>
+		/// Deterministic stand-in for a real ad SDK, so AdRewardController's
+		/// orchestration logic can be tested without Unity, network access,
+		/// or any actual ad provider.
+		/// </summary>
 		private sealed class FakeAd : IRewardedAdService
 		{
 			public bool IsReady { get; set; } = true;
