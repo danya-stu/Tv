@@ -68,12 +68,12 @@ namespace PotionCraft.Gameplay
 			{
 				for (int x = 0; x < _width; x++)
 				{
-					_tiles[x, y] = CreateTile(x, y, _model.GetItem(x, y).Color);
+					_tiles[x, y] = CreateTile(x, y, _model.GetItem(x, y));
 				}
 			}
 		}
 
-		private TileView CreateTile(int x, int y, ItemColor color)
+		private TileView CreateTile(int x, int y, Item item)
 		{
 			var go = new GameObject($"Tile_{x}_{y}");
 			go.transform.SetParent(transform, false);
@@ -83,7 +83,7 @@ namespace PotionCraft.Gameplay
 			go.AddComponent<SpriteRenderer>();
 			var tile = go.AddComponent<TileView>();
 			tile.SetGridPosition(x, y);
-			tile.SetColor(color);
+			tile.SetItem(item);
 
 			return tile;
 		}
@@ -301,11 +301,11 @@ namespace PotionCraft.Gameplay
 					if (_tiles[x, y] != null)
 						continue;
 
-					ItemColor color = _model.GetItem(x, y).Color;
-					if (color == ItemColor.None)
+					Item item = _model.GetItem(x, y);
+					if (item.Color == ItemColor.None)
 						continue;
 
-					TileView tile = CreateTile(x, y, color);
+					TileView tile = CreateTile(x, y, item);
 					// Spawn one row above the top of the board and fall into
 					// place, instead of popping straight into the final slot.
 					tile.transform.localPosition = CellToLocalPosition(x, _height);
@@ -324,7 +324,7 @@ namespace PotionCraft.Gameplay
 			for (int y = 0; y < _height; y++)
 			{
 				for (int x = 0; x < _width; x++)
-					_tiles[x, y].SetColor(_model.GetItem(x, y).Color);
+					_tiles[x, y].SetItem(_model.GetItem(x, y));
 			}
 		}
 
