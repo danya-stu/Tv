@@ -100,19 +100,26 @@ namespace PotionCraft.Tests.Editor
 		{
 			var grid = new GridModel(GridWidth, GridHeight, FixedSeed);
 
-			// Build a strict two-color checkerboard: adjacent cells always
-			// differ, so no single swap can ever produce a run of three. This
-			// is a deliberately deadlocked board with zero possible moves.
+			// Build a genuine match-3 deadlock: a diagonal 3-color stripe
+			// pattern, color(x, y) = (x + y) % 3. A 2-color checkerboard is
+			// NOT a real deadlock -- swapping any horizontal or vertical pair
+			// on a checkerboard always creates a vertical/horizontal run of 3
+			// in the adjacent column/row, because the swapped-in color always
+			// equals both neighbours two cells away. The period-3 diagonal
+			// stripe pattern below is a well-known true deadlock: any single
+			// adjacent swap only ever produces a run of length 2 in either
+			// direction, never 3, so the board has zero possible moves.
+			ItemColor[] palette = { ItemColor.Red, ItemColor.Blue, ItemColor.Green };
 			for (int y = 0; y < grid.Height; y++)
 			{
 				for (int x = 0; x < grid.Width; x++)
 				{
-					ItemColor color = (x + y) % 2 == 0 ? ItemColor.Red : ItemColor.Blue;
+					ItemColor color = palette[(x + y) % 3];
 					grid.SetItem(x, y, Item.Create(color));
 				}
 			}
 
-			Assert.IsFalse(grid.HasPossibleMoves(), "Checkerboard setup should have zero possible moves.");
+			Assert.IsFalse(grid.HasPossibleMoves(), "Diagonal stripe setup should have zero possible moves.");
 
 			grid.ShuffleUntilSolvable();
 
