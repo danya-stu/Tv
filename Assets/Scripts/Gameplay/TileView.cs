@@ -6,40 +6,69 @@ namespace PotionCraft.Gameplay
 {
 	/// <summary>
 	/// Visual for a single grid cell. Renders a tinted, procedurally-baked
-	/// faceted gem icon (see GemSpriteFactory) generated at runtime (no art
-	/// assets required) and exposes the move/shrink animations GridView
-	/// needs while swaps and cascades resolve. Swap this out for real
-	/// imported sprites later without touching GridView's public API: only
-	/// SetColor/SetItem and the sprite creation need to change.
+	/// faceted gem icon plus a small drop shadow (see GemSpriteFactory) on a
+	/// child "Visual" transform, and exposes the move/shrink animations
+	/// GridView needs while swaps and cascades resolve. The root transform
+	/// carries grid position (MoveTo) and the fixed board-scale GridView
+	/// sets once; the child Visual transform layers a gentle idle
+	/// "breathing" pulse on top so tiles feel alive without fighting the
+	/// root's position/shrink animations. Catalyst tiles (see SetItem) pulse
+	/// noticeably more so they read as special at a glance. Swap this out
+	/// for real imported sprites later without touching GridView's public
+	/// API: only SetColor/SetItem and the sprite creation need to change.
 	/// </summary>
-	[RequireComponent(typeof(SpriteRenderer))]
 	public sealed class TileView : MonoBehaviour
 	{
-		private static Sprite _placeholderSprite;
+		private const float BasePulseAmplitude = 0.035f;
+		private const float CatalystPulseAmplitude = 0.075f;
+		private const float PulseSpeed = 1.6f;
 
+		private Transform _visual;
 		private SpriteRenderer _spriteRenderer;
+		private SpriteRenderer _shadowRenderer;
+		private float _phaseOffset;
+		private float _pulseAmplitude = BasePulseAmplitude;
+		private bool _isAnimatingScale;
 
 		public int GridX { get; private set; }
 		public int GridY { get; private set; }
 
 		private void Awake()
 		{
-			_spriteRenderer = GetComponent<SpriteRenderer>();
-			_spriteRenderer.sprite = GetOrCreatePlaceholderSprite();
+			var visualGo = new GameObject("Visual");
+			visualGo.transform.SetParent(transform, false);
+			_visual = visualGo.transform;
+
+			// Small drop shadow, offset down-right and slightly inset, so the
+			// gem visually lifts off the board's slot background instead of
+			// looking pasted flat onto it.
+			var shadowGo = new GameObject("Shadow");
+			shadowGo.transform.SetParent(_visual, false);
+			shadowGo.transform.localPosition = new Vector3(0.08f, -0.08f, 0.01f);
+			shadowGo.transform.localScale = Vector3.one * 0.94f;
+			_shadowRenderer = shadowGo.AddComponent<SpriteRenderer>();
+			_shadowRenderer.sprite = GemSpriteFactory.GetGemShadow(64);
+			_shadowRenderer.sortingOrder = -1;
+
+			_spriteRenderer = visualGo.AddComponent<SpriteRenderer>();
+			_spriteRenderer.sprite = GemSpriteFactory.GetGem(64);
+			_spriteRenderer.sortingOrder = 0;
+
+			// Randomized per-tile so a full board of gems doesn't breathe in
+			// perfect unison, which would look robotic instead of alive.
+			_phaseOffset = Random.Range(0f, Mathf.PI * 2f);
 		}
 
-		private static Sprite GetOrCreatePlaceholderSprite()
+		private void Update()
 		{
-			if (_placeholderSprite != null)
-				return _placeholderSprite;
+			// Never fight ShrinkAndDisable's own scale animation on the root;
+			// once that starts, the child's leftover pulse scale is harmless
+			// since it is about to shrink to zero anyway.
+			if (_isAnimatingScale)
+				return;
 
-			// A faceted gem/crystal icon, tinted per-tile via
-			// SpriteRenderer.color. Reads as an alchemical reagent instead
-			// of a flat square while still requiring zero imported art
-			// assets; swap for real art sprites later without touching any
-			// other tile code.
-			_placeholderSprite = GemSpriteFactory.GetGem(64);
-			return _placeholderSprite;
+			float pulse = 1f + Mathf.Sin(Time.time * PulseSpeed + _phaseOffset) * _pulseAmplitude;
+			_visual.localScale = Vector3.one * pulse;
 		}
 
 		public void SetGridPosition(int x, int y)
@@ -55,16 +84,20 @@ namespace PotionCraft.Gameplay
 
 		/// <summary>
 		/// Sets the tile's visual from a full Item, including a brightened
-		/// "glow" tint when the item carries a Reaction Catalyst effect, so
-		/// catalyst tiles are visually distinguishable from plain items even
-		/// before dedicated catalyst art/icons exist.
+		/// "glow" tint and a noticeably larger idle pulse when the item
+		/// carries a Reaction Catalyst effect, so catalyst tiles are
+		/// distinguishable at a glance even before dedicated catalyst
+		/// art/icons exist.
 		/// </summary>
 		public void SetItem(Item item)
 		{
 			SetColor(item.Color);
 
-			if (item.Catalyst != CatalystType.None)
+			bool isCatalyst = item.Catalyst != CatalystType.None;
+			if (isCatalyst)
 				_spriteRenderer.color = Color.Lerp(_spriteRenderer.color, Color.white, 0.45f);
+
+			_pulseAmplitude = isCatalyst ? CatalystPulseAmplitude : BasePulseAmplitude;
 		}
 
 		public static Color ColorForItemColor(ItemColor color)
@@ -110,6 +143,7 @@ namespace PotionCraft.Gameplay
 
 		public IEnumerator ShrinkAndDisable(float duration)
 		{
+			_isAnimatingScale = true;
 			Vector3 startScale = transform.localScale;
 
 			if (duration <= 0f)
