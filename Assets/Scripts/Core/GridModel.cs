@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace PotionCraft.Core
 {
@@ -260,6 +261,107 @@ namespace PotionCraft.Core
 				next = 1;
 
 			return (ItemColor)next;
+		}
+
+		/// <summary>
+		/// Clears every cell referenced by the given matches (sets them to
+		/// Item.Empty). Typically called immediately after MatchFinder detects
+		/// matches, so gravity/refill can process the vacated cells.
+		/// </summary>
+		public int RemoveMatches(IReadOnlyList<MatchGroup> matches)
+		{
+			int clearedCount = 0;
+
+			foreach (MatchGroup match in matches)
+			{
+				foreach ((int X, int Y) cell in match.Cells)
+				{
+					if (_grid[cell.X, cell.Y].Color != ItemColor.None)
+						clearedCount++;
+
+					_grid[cell.X, cell.Y] = Item.Empty;
+				}
+			}
+
+			return clearedCount;
+		}
+
+		/// <summary>
+		/// Collapses each column so every non-empty item falls toward y = 0
+		/// (the bottom row), leaving any leftover empty cells stacked at the top
+		/// (highest y) of that column, ready for RefillEmptyCells.
+		/// </summary>
+		public void ApplyGravity()
+		{
+			for (int x = 0; x < Width; x++)
+			{
+				int writeY = 0;
+
+				for (int readY = 0; readY < Height; readY++)
+				{
+					if (_grid[x, readY].Color == ItemColor.None)
+						continue;
+
+					if (writeY != readY)
+					{
+						_grid[x, writeY] = _grid[x, readY];
+						_grid[x, readY] = Item.Empty;
+					}
+
+					writeY++;
+				}
+			}
+		}
+
+		/// <summary>
+		/// Fills every remaining empty cell (expected to be stacked at the top
+		/// of each column after ApplyGravity) with a freshly generated item,
+		/// reusing the same non-matching-color guarantee as initial grid
+		/// generation.
+		/// </summary>
+		public void RefillEmptyCells(int colorCount = 5)
+		{
+			for (int y = 0; y < Height; y++)
+			{
+				for (int x = 0; x < Width; x++)
+				{
+					if (_grid[x, y].Color != ItemColor.None)
+						continue;
+
+					ItemColor color = PickNonMatchingColor(x, y, colorCount);
+					_grid[x, y] = Item.Create(color);
+				}
+			}
+		}
+
+		/// <summary>
+		/// Runs the full match -> remove -> gravity -> refill loop until the
+		/// board is stable (no more matches), bounded by (Width * Height) as a
+		/// hard safety cap so a pathological board can never loop forever. Call
+		/// this once after a player swap that created at least one match, to
+		/// resolve the entire chain reaction (including cascades) in one call.
+		/// </summary>
+		public CascadeReport ResolveCascade(int colorCount = 5)
+		{
+			var allMatches = new List<MatchGroup>();
+			int totalCellsCleared = 0;
+			int stepCount = 0;
+			int maxSteps = Width * Height;
+
+			while (stepCount < maxSteps)
+			{
+				List<MatchGroup> matches = MatchFinder.FindAllMatches(this);
+				if (matches.Count == 0)
+					break;
+
+				totalCellsCleared += RemoveMatches(matches);
+				allMatches.AddRange(matches);
+				ApplyGravity();
+				RefillEmptyCells(colorCount);
+				stepCount++;
+			}
+
+			return new CascadeReport(stepCount, totalCellsCleared, allMatches);
 		}
 	}
 }
