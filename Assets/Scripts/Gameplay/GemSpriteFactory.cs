@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -80,8 +81,8 @@ namespace PotionCraft.Gameplay
 					brightness = Mathf.Clamp01(brightness + highlight * 0.35f);
 
 					// Tint-invariant dark outline: pushes brightness toward
-					near zero right at the silhouette edge so the gem keeps
-					a crisp rim regardless of the color it's tinted with.
+					// near zero right at the silhouette edge so the gem keeps
+					// a crisp rim regardless of the color it's tinted with.
 					float outlineT = Mathf.Clamp01(dist / outlineWidth);
 					float outlineMul = Mathf.Lerp(0.08f, 1f, outlineT);
 					brightness *= outlineMul;
