@@ -5,12 +5,12 @@ using PotionCraft.Core;
 namespace PotionCraft.Gameplay
 {
 	/// <summary>
-	/// Placeholder visual for a single grid cell. Renders a plain tinted
-	/// square generated at runtime (no art assets required yet) and exposes
-	/// the move/shrink animations GridView needs while swaps and cascades
-	/// resolve. Swap this out for real sprites later without touching
-	/// GridView's public API: only SetColor/SetItem and the sprite creation
-	/// need to change.
+	/// Placeholder visual for a single grid cell. Renders a tinted, softly
+	/// rounded square generated at runtime (no art assets required yet) and
+	/// exposes the move/shrink animations GridView needs while swaps and
+	/// cascades resolve. Swap this out for real sprites later without
+	/// touching GridView's public API: only SetColor/SetItem and the sprite
+	/// creation need to change.
 	/// </summary>
 	[RequireComponent(typeof(SpriteRenderer))]
 	public sealed class TileView : MonoBehaviour
@@ -33,15 +33,12 @@ namespace PotionCraft.Gameplay
 			if (_placeholderSprite != null)
 				return _placeholderSprite;
 
-			// A single white pixel, tinted per-tile via SpriteRenderer.color.
-			// This is intentionally the simplest possible placeholder so the
-			// gameplay layer never depends on any imported art asset.
-			var texture = new Texture2D(1, 1, TextureFormat.RGBA32, false);
-			texture.SetPixel(0, 0, Color.white);
-			texture.Apply();
-			texture.filterMode = FilterMode.Point;
-
-			_placeholderSprite = Sprite.Create(texture, new Rect(0f, 0f, 1f, 1f), new Vector2(0.5f, 0.5f), 1f);
+			// A softly rounded square with a subtle inset border, tinted
+			// per-tile via SpriteRenderer.color. This reads as a real game
+			// piece instead of a flat IMGUI-style square while still
+			// requiring zero imported art assets; swap for real art sprites
+			// later without touching any other tile code.
+			_placeholderSprite = UISpriteFactory.GetRoundedSquare(64, 12, 4);
 			return _placeholderSprite;
 		}
 
