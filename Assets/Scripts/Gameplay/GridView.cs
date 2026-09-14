@@ -26,10 +26,14 @@ namespace PotionCraft.Gameplay
 		[SerializeField] private int _orderCount = 3;
 		[SerializeField] private int _orderMinRequiredCount = 12;
 		[SerializeField] private int _orderMaxRequiredCount = 20;
+		[SerializeField] private int _maxContinues = 1;
+		[SerializeField] private int _continueBonusMoves = 5;
 
 		private GridModel _model;
 		private GameSession _session;
 		private OrderBook _orderBook;
+		private IRewardedAdService _adService;
+		private bool _isWatchingAd;
 		private TileView[,] _tiles;
 		private bool _isResolving;
 		private Vector2Int? _dragStartCell;
@@ -61,7 +65,8 @@ namespace PotionCraft.Gameplay
 				_model.ShuffleUntilSolvable();
 
 			_orderBook = BuildOrderBook();
-			_session = new GameSession(_targetScore, _maxMoves, _orderBook);
+			_session = new GameSession(_targetScore, _maxMoves, _orderBook, _maxContinues);
+			_adService = new MockRewardedAdService(this);
 
 			_tiles = new TileView[_width, _height];
 			BuildTiles();
@@ -364,9 +369,28 @@ namespace PotionCraft.Gameplay
 			}
 		}
 
-		// Minimal IMGUI HUD so score/moves/orders/win-lose are visible without
-		// a Canvas or UI prefabs yet. Intended to be replaced by real UI in a
-		// later polish pass.
+		/// <summary>
+		/// Kicks off the "watch ad to continue" reward flow (the Sprint 7
+		/// monetization hook). Guarded by _isWatchingAd so a double click on
+		/// the HUD button can never request two ads at once; the ad service
+		/// itself is swappable (see MockRewardedAdService) without touching
+		/// this method.
+		/// </summary>
+		private void RequestAdContinue()
+		{
+			if (_isWatchingAd || !_session.CanContinueWithAd)
+				return;
+
+			_isWatchingAd = true;
+			AdRewardController.RequestContinue(_session, _adService, _continueBonusMoves, granted =>
+			{
+				_isWatchingAd = false;
+			});
+		}
+
+		// Minimal IMGUI HUD so score/moves/orders/win-lose/continue are
+		// visible without a Canvas or UI prefabs yet. Intended to be
+		// replaced by real UI in a later polish pass.
 		private void OnGUI()
 		{
 			if (_session == null)
@@ -404,9 +428,25 @@ namespace PotionCraft.Gameplay
 
 			int endStateY = orderY + 10;
 			if (_session.State == GameSessionState.Won)
+			{
 				GUI.Label(new Rect(20, endStateY, 500, 60), "LEVEL COMPLETE", style);
+			}
 			else if (_session.State == GameSessionState.Lost)
+			{
 				GUI.Label(new Rect(20, endStateY, 500, 60), "OUT OF MOVES", style);
+
+				if (_isWatchingAd)
+				{
+					GUI.Label(new Rect(20, endStateY + 60, 500, 40), "Смотрите рекламу...", orderStyle);
+				}
+				else if (_session.CanContinueWithAd)
+				{
+					if (GUI.Button(new Rect(20, endStateY + 60, 340, 50), $"Смотреть рекламу за +{_continueBonusMoves} ходов"))
+					{
+						RequestAdContinue();
+					}
+				}
+			}
 		}
 	}
 }
