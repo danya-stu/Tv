@@ -21,12 +21,27 @@ namespace PotionCraft.Gameplay
 		[SerializeField] private float _swapAnimationDuration = 0.15f;
 		[SerializeField] private float _removeAnimationDuration = 0.12f;
 		[SerializeField] private float _fallAnimationDuration = 0.2f;
+		[SerializeField] private int _targetScore = 500;
+		[SerializeField] private int _maxMoves = 20;
 
 		private GridModel _model;
+		private GameSession _session;
 		private TileView[,] _tiles;
 		private bool _isResolving;
 		private Vector2Int? _dragStartCell;
 		private Camera _mainCamera;
+
+		// Mutable accumulator used only while a single ResolveCascadeVisual
+		// call is in flight, so the visual cascade loop (which yields across
+		// many frames) can still build one CascadeReport for scoring at the
+		// end, matching the shape GridModel.ResolveCascade produces on the
+		// pure-model side.
+		private sealed class CascadeAccumulator
+		{
+			public int StepCount;
+			public int TotalCellsCleared;
+			public readonly List<MatchGroup> AllMatches = new List<MatchGroup>();
+		}
 
 		private void Awake()
 		{
@@ -40,6 +55,8 @@ namespace PotionCraft.Gameplay
 			// safety check GridModelTests exercises on the pure model.
 			if (!_model.HasPossibleMoves())
 				_model.ShuffleUntilSolvable();
+
+			_session = new GameSession(_targetScore, _maxMoves);
 
 			_tiles = new TileView[_width, _height];
 			BuildTiles();
@@ -78,7 +95,10 @@ namespace PotionCraft.Gameplay
 
 		private void Update()
 		{
-			if (_isResolving)
+			// Once the level has been won or lost, stop accepting input
+			// entirely rather than letting the player keep swapping tiles on
+			// a finished board.
+			if (_isResolving || _session.State != GameSessionState.InProgress)
 				return;
 
 			if (Input.GetMouseButtonDown(0))
@@ -134,7 +154,8 @@ namespace PotionCraft.Gameplay
 			if (matches.Count == 0)
 			{
 				// Invalid move: animate there and back, then revert the model
-				// so simulation state always matches what the player sees.
+				// so simulation state always matches what the player sees. An
+				// invalid swap does not consume a move.
 				yield return AnimateSwapVisual(x1, y1, x2, y2);
 				yield return AnimateSwapVisual(x1, y1, x2, y2);
 				_model.Swap(x1, y1, x2, y2);
@@ -144,7 +165,12 @@ namespace PotionCraft.Gameplay
 			}
 
 			yield return AnimateSwapVisual(x1, y1, x2, y2);
-			yield return ResolveCascadeVisual();
+
+			var accumulator = new CascadeAccumulator();
+			yield return ResolveCascadeVisual(accumulator);
+
+			var report = new CascadeReport(accumulator.StepCount, accumulator.TotalCellsCleared, accumulator.AllMatches);
+			_session.RegisterCascade(report);
 
 			if (!_model.HasPossibleMoves())
 			{
@@ -172,7 +198,7 @@ namespace PotionCraft.Gameplay
 			yield return moveB;
 		}
 
-		private IEnumerator ResolveCascadeVisual()
+		private IEnumerator ResolveCascadeVisual(CascadeAccumulator accumulator)
 		{
 			// Hard safety cap matching GridModel.ResolveCascade, so a
 			// pathological board can never loop forever on the visual side
@@ -184,6 +210,11 @@ namespace PotionCraft.Gameplay
 				List<MatchGroup> matches = MatchFinder.FindAllMatches(_model);
 				if (matches.Count == 0)
 					yield break;
+
+				accumulator.StepCount++;
+				accumulator.AllMatches.AddRange(matches);
+				foreach (MatchGroup match in matches)
+					accumulator.TotalCellsCleared += match.Cells.Count;
 
 				yield return AnimateRemoval(matches);
 				_model.RemoveMatches(matches);
@@ -295,6 +326,29 @@ namespace PotionCraft.Gameplay
 				for (int x = 0; x < _width; x++)
 					_tiles[x, y].SetColor(_model.GetItem(x, y).Color);
 			}
+		}
+
+		// Minimal IMGUI HUD so score/moves/win-lose are visible without a
+		// Canvas or UI prefabs yet. Intended to be replaced by real UI in a
+		// later polish pass.
+		private void OnGUI()
+		{
+			if (_session == null)
+				return;
+
+			var style = new GUIStyle(GUI.skin.label)
+			{
+				fontSize = 28,
+				normal = { textColor = Color.white }
+			};
+
+			GUI.Label(new Rect(20, 20, 500, 40), $"Score: {_session.Score} / {_session.TargetScore}", style);
+			GUI.Label(new Rect(20, 60, 500, 40), $"Moves: {_session.MovesRemaining}", style);
+
+			if (_session.State == GameSessionState.Won)
+				GUI.Label(new Rect(20, 110, 500, 60), "LEVEL COMPLETE", style);
+			else if (_session.State == GameSessionState.Lost)
+				GUI.Label(new Rect(20, 110, 500, 60), "OUT OF MOVES", style);
 		}
 	}
 }
