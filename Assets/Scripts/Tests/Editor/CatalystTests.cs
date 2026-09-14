@@ -116,10 +116,16 @@ namespace PotionCraft.Tests.Editor
 			var grid = new GridModel(Size, Size, 5);
 			ClearGrid(grid);
 
-			// Pre-fill row 4 with an unrelated color so we can verify the whole
-			// row gets cleared by the catalyst activation, not just the match.
+			// Fill row 4 with alternating background colors (Purple/Blue) so no
+			// unintended 3-in-a-row forms outside the deliberate Red match
+			// below; only the RowClear catalyst's activation should clear
+			// these cells, not a coincidental second match.
+			ItemColor[] background = { ItemColor.Purple, ItemColor.Blue, ItemColor.None, ItemColor.None, ItemColor.None, ItemColor.Blue, ItemColor.Purple, ItemColor.Blue };
 			for (int x = 0; x < Size; x++)
-				grid.SetItem(x, 4, Item.Create(ItemColor.Purple));
+			{
+				if (background[x] != ItemColor.None)
+					grid.SetItem(x, 4, Item.Create(background[x]));
+			}
 
 			// A fresh 3-match sweeps up a pre-placed RowClear catalyst.
 			grid.SetItem(2, 4, Item.Create(ItemColor.Red));
