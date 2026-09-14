@@ -417,6 +417,12 @@ namespace PotionCraft.Gameplay
 					_hud.UpdateOrder(i, _orderBook.Orders[i]);
 			}
 
+			// The dim overlay behind the center banner should be visible
+			// exactly while the level has ended (Won or Lost), so the banner
+			// and ad button always read clearly against the colorful board
+			// instead of blending into it.
+			_hud.SetDimOverlay(_session.State != GameSessionState.InProgress);
+
 			if (_session.State == GameSessionState.Won)
 			{
 				_hud.SetEndState("LEVEL COMPLETE");
