@@ -5,12 +5,12 @@ using PotionCraft.Core;
 namespace PotionCraft.Gameplay
 {
 	/// <summary>
-	/// Placeholder visual for a single grid cell. Renders a tinted, softly
-	/// rounded square generated at runtime (no art assets required yet) and
-	/// exposes the move/shrink animations GridView needs while swaps and
-	/// cascades resolve. Swap this out for real sprites later without
-	/// touching GridView's public API: only SetColor/SetItem and the sprite
-	/// creation need to change.
+	/// Visual for a single grid cell. Renders a tinted, procedurally-baked
+	/// faceted gem icon (see GemSpriteFactory) generated at runtime (no art
+	/// assets required) and exposes the move/shrink animations GridView
+	/// needs while swaps and cascades resolve. Swap this out for real
+	/// imported sprites later without touching GridView's public API: only
+	/// SetColor/SetItem and the sprite creation need to change.
 	/// </summary>
 	[RequireComponent(typeof(SpriteRenderer))]
 	public sealed class TileView : MonoBehaviour
@@ -33,12 +33,12 @@ namespace PotionCraft.Gameplay
 			if (_placeholderSprite != null)
 				return _placeholderSprite;
 
-			// A softly rounded square with a subtle inset border, tinted
-			// per-tile via SpriteRenderer.color. This reads as a real game
-			// piece instead of a flat IMGUI-style square while still
-			// requiring zero imported art assets; swap for real art sprites
-			// later without touching any other tile code.
-			_placeholderSprite = UISpriteFactory.GetRoundedSquare(64, 12, 4);
+			// A faceted gem/crystal icon, tinted per-tile via
+			// SpriteRenderer.color. Reads as an alchemical reagent instead
+			// of a flat square while still requiring zero imported art
+			// assets; swap for real art sprites later without touching any
+			// other tile code.
+			_placeholderSprite = GemSpriteFactory.GetGem(64);
 			return _placeholderSprite;
 		}
 
