@@ -23,9 +23,13 @@ namespace PotionCraft.Gameplay
 		[SerializeField] private float _fallAnimationDuration = 0.2f;
 		[SerializeField] private int _targetScore = 500;
 		[SerializeField] private int _maxMoves = 20;
+		[SerializeField] private int _orderCount = 3;
+		[SerializeField] private int _orderMinRequiredCount = 12;
+		[SerializeField] private int _orderMaxRequiredCount = 20;
 
 		private GridModel _model;
 		private GameSession _session;
+		private OrderBook _orderBook;
 		private TileView[,] _tiles;
 		private bool _isResolving;
 		private Vector2Int? _dragStartCell;
@@ -56,10 +60,42 @@ namespace PotionCraft.Gameplay
 			if (!_model.HasPossibleMoves())
 				_model.ShuffleUntilSolvable();
 
-			_session = new GameSession(_targetScore, _maxMoves);
+			_orderBook = BuildOrderBook();
+			_session = new GameSession(_targetScore, _maxMoves, _orderBook);
 
 			_tiles = new TileView[_width, _height];
 			BuildTiles();
+		}
+
+		/// <summary>
+		/// Builds this level's "Книга Заказов" (Order Book): a handful of
+		/// distinct-color collection requests, each bounded to colors that can
+		/// actually spawn on this board (_colorCount) so no order is ever
+		/// impossible to complete.
+		/// </summary>
+		private OrderBook BuildOrderBook()
+		{
+			var availableColors = new List<ItemColor>();
+			for (int i = 1; i <= _colorCount && i <= 5; i++)
+				availableColors.Add((ItemColor)i);
+
+			int orderCount = Mathf.Clamp(_orderCount, 0, availableColors.Count);
+			var usedColors = new HashSet<ItemColor>();
+			var orders = new List<Order>(orderCount);
+
+			for (int i = 0; i < orderCount; i++)
+			{
+				ItemColor color;
+				do
+				{
+					color = availableColors[Random.Range(0, availableColors.Count)];
+				} while (!usedColors.Add(color));
+
+				int requiredCount = Random.Range(_orderMinRequiredCount, _orderMaxRequiredCount + 1);
+				orders.Add(new Order(color, requiredCount));
+			}
+
+			return new OrderBook(orders);
 		}
 
 		private void BuildTiles()
@@ -328,8 +364,8 @@ namespace PotionCraft.Gameplay
 			}
 		}
 
-		// Minimal IMGUI HUD so score/moves/win-lose are visible without a
-		// Canvas or UI prefabs yet. Intended to be replaced by real UI in a
+		// Minimal IMGUI HUD so score/moves/orders/win-lose are visible without
+		// a Canvas or UI prefabs yet. Intended to be replaced by real UI in a
 		// later polish pass.
 		private void OnGUI()
 		{
@@ -342,13 +378,35 @@ namespace PotionCraft.Gameplay
 				normal = { textColor = Color.white }
 			};
 
+			var orderStyle = new GUIStyle(GUI.skin.label)
+			{
+				fontSize = 22,
+				normal = { textColor = Color.white }
+			};
+
 			GUI.Label(new Rect(20, 20, 500, 40), $"Score: {_session.Score} / {_session.TargetScore}", style);
 			GUI.Label(new Rect(20, 60, 500, 40), $"Moves: {_session.MovesRemaining}", style);
 
+			int orderY = 108;
+			if (_orderBook != null && _orderBook.Orders.Count > 0)
+			{
+				GUI.Label(new Rect(20, orderY, 500, 30), "Книга заказов:", orderStyle);
+				orderY += 30;
+
+				for (int i = 0; i < _orderBook.Orders.Count; i++)
+				{
+					Order order = _orderBook.Orders[i];
+					string status = order.IsComplete ? "✓ готово" : $"{order.CollectedCount}/{order.RequiredCount}";
+					GUI.Label(new Rect(40, orderY, 500, 28), $"{order.Color}: {status}", orderStyle);
+					orderY += 28;
+				}
+			}
+
+			int endStateY = orderY + 10;
 			if (_session.State == GameSessionState.Won)
-				GUI.Label(new Rect(20, 110, 500, 60), "LEVEL COMPLETE", style);
+				GUI.Label(new Rect(20, endStateY, 500, 60), "LEVEL COMPLETE", style);
 			else if (_session.State == GameSessionState.Lost)
-				GUI.Label(new Rect(20, 110, 500, 60), "OUT OF MOVES", style);
+				GUI.Label(new Rect(20, endStateY, 500, 60), "OUT OF MOVES", style);
 		}
 	}
 }
