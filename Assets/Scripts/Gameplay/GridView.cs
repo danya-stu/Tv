@@ -7,8 +7,9 @@ namespace PotionCraft.Gameplay
 {
 	/// <summary>
 	/// Bridges the pure C# GridModel/MatchFinder simulation to a visible,
-	/// swipe-controlled Unity scene using placeholder tiles (see TileView)
-	/// and a runtime-built Canvas HUD (see GameHud). Attach to an empty
+	/// swipe-controlled Unity scene using gem-icon tiles (see TileView), a
+	/// procedural board backdrop (see BoardBackgroundFactory), and a
+	/// runtime-built Canvas HUD (see GameHud). Attach to an empty
 	/// GameObject in a scene with a camera tagged MainCamera; it builds the
 	/// board, every tile, and the HUD at runtime, so no prefabs or art
 	/// assets are required yet.
@@ -74,6 +75,8 @@ namespace PotionCraft.Gameplay
 			_hud.BuildOrderRows(_orderBook.Orders);
 			_hud.OnWatchAdClicked += RequestAdContinue;
 
+			CreateBoardBackground();
+
 			_tiles = new TileView[_width, _height];
 			BuildTiles();
 
@@ -109,6 +112,27 @@ namespace PotionCraft.Gameplay
 			}
 
 			return new OrderBook(orders);
+		}
+
+		/// <summary>
+		/// Places a single large procedurally-baked backdrop sprite behind
+		/// the board so gem tiles sit in visible "slots" instead of floating
+		/// on an empty background. Purely cosmetic; never touches _model or
+		/// _tiles.
+		/// </summary>
+		private void CreateBoardBackground()
+		{
+			var go = new GameObject("BoardBackground");
+			go.transform.SetParent(transform, false);
+
+			float centerX = (_width - 1) * _cellSize * 0.5f;
+			float centerY = (_height - 1) * _cellSize * 0.5f;
+			go.transform.localPosition = new Vector3(centerX, centerY, 0f);
+			go.transform.localScale = Vector3.one * _cellSize;
+
+			var renderer = go.AddComponent<SpriteRenderer>();
+			renderer.sprite = BoardBackgroundFactory.GetBoardBackground(_width, _height);
+			renderer.sortingOrder = -1;
 		}
 
 		private void BuildTiles()
