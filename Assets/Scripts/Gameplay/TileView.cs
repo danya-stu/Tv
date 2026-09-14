@@ -9,8 +9,8 @@ namespace PotionCraft.Gameplay
 	/// square generated at runtime (no art assets required yet) and exposes
 	/// the move/shrink animations GridView needs while swaps and cascades
 	/// resolve. Swap this out for real sprites later without touching
-	/// GridView's public API: only SetColor and the sprite creation need to
-	/// change.
+	/// GridView's public API: only SetColor/SetItem and the sprite creation
+	/// need to change.
 	/// </summary>
 	[RequireComponent(typeof(SpriteRenderer))]
 	public sealed class TileView : MonoBehaviour
@@ -54,6 +54,20 @@ namespace PotionCraft.Gameplay
 		public void SetColor(ItemColor color)
 		{
 			_spriteRenderer.color = ColorForItemColor(color);
+		}
+
+		/// <summary>
+		/// Sets the tile's visual from a full Item, including a brightened
+		/// "glow" tint when the item carries a Reaction Catalyst effect, so
+		/// catalyst tiles are visually distinguishable from plain items even
+		/// before dedicated catalyst art/icons exist.
+		/// </summary>
+		public void SetItem(Item item)
+		{
+			SetColor(item.Color);
+
+			if (item.Catalyst != CatalystType.None)
+				_spriteRenderer.color = Color.Lerp(_spriteRenderer.color, Color.white, 0.45f);
 		}
 
 		public static Color ColorForItemColor(ItemColor color)
