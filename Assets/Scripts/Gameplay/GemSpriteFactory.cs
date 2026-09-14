@@ -12,11 +12,14 @@ namespace PotionCraft.Gameplay
 	/// specular highlight + a tint-invariant near-black outline), so
 	/// TileView's existing SpriteRenderer.color tint (see TileView.SetColor)
 	/// still produces the correct per-color result without any other
-	/// call-site changes. No external art assets or packages required.
+	/// call-site changes. Also bakes a matching drop-shadow silhouette (see
+	/// GetGemShadow) so tiles can visually lift off the board background.
+	/// No external art assets or packages required.
 	/// </summary>
 	public static class GemSpriteFactory
 	{
 		private static readonly Dictionary<int, Sprite> Cache = new Dictionary<int, Sprite>();
+		private static readonly Dictionary<int, Sprite> ShadowCache = new Dictionary<int, Sprite>();
 
 		// Kite-shaped gem silhouette: pointed top and bottom, wide "belt"
 		// near the top third, matching a classic cut-crystal icon rather
@@ -98,6 +101,50 @@ namespace PotionCraft.Gameplay
 
 			var sprite = Sprite.Create(texture, new Rect(0f, 0f, size, size), new Vector2(0.5f, 0.5f), size);
 			Cache[size] = sprite;
+			return sprite;
+		}
+
+		/// <summary>
+		/// Returns a cached (or newly baked) soft drop-shadow sprite matching
+		/// the gem's silhouette: a flat, semi-transparent dark shape with no
+		/// facet shading. TileView offsets and slightly shrinks this behind
+		/// the tinted gem so tiles read as sitting above the board instead of
+		/// flat against it.
+		/// </summary>
+		public static Sprite GetGemShadow(int size = 64)
+		{
+			if (ShadowCache.TryGetValue(size, out Sprite cached) && cached != null)
+				return cached;
+
+			var texture = new Texture2D(size, size, TextureFormat.RGBA32, false)
+			{
+				filterMode = FilterMode.Bilinear,
+				wrapMode = TextureWrapMode.Clamp,
+			};
+
+			var pixels = new Color32[size * size];
+			float pixelUnit = 2f / size;
+			float edgeFeather = pixelUnit * 1.5f;
+
+			for (int y = 0; y < size; y++)
+			{
+				float v = (y + 0.5f) / size * 2f - 1f;
+				for (int x = 0; x < size; x++)
+				{
+					float u = (x + 0.5f) / size * 2f - 1f;
+					float dist = SignedDistanceToQuad(new Vector2(u, v));
+					float coverage = Mathf.Clamp01(dist / edgeFeather + 0.5f);
+
+					byte a = (byte)Mathf.RoundToInt(coverage * 140f);
+					pixels[y * size + x] = new Color32(6, 4, 10, a);
+				}
+			}
+
+			texture.SetPixels32(pixels);
+			texture.Apply();
+
+			var sprite = Sprite.Create(texture, new Rect(0f, 0f, size, size), new Vector2(0.5f, 0.5f), size);
+			ShadowCache[size] = sprite;
 			return sprite;
 		}
 
