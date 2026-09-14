@@ -265,25 +265,158 @@ namespace PotionCraft.Core
 
 		/// <summary>
 		/// Clears every cell referenced by the given matches (sets them to
-		/// Item.Empty). Typically called immediately after MatchFinder detects
-		/// matches, so gravity/refill can process the vacated cells.
+		/// Item.Empty), except that a big enough match (Line4, Line5Plus, or
+		/// Cross) spawns a Reaction Catalyst item at one cell of the match
+		/// instead of clearing it -- see CatalystTypeForMatch. Before clearing,
+		/// any catalyst item swept up among the matched cells activates first
+		/// (via ExpandForCatalystActivations), expanding the cleared area with
+		/// its row-clear, column-clear, or color-bomb effect, chaining through
+		/// any further catalysts that effect sweeps up. Typically called
+		/// immediately after MatchFinder detects matches, so gravity/refill
+		/// can process the vacated cells.
 		/// </summary>
 		public int RemoveMatches(IReadOnlyList<MatchGroup> matches)
 		{
-			int clearedCount = 0;
+			var catalystSpawns = new Dictionary<(int X, int Y), Item>();
+			var initialCells = new HashSet<(int X, int Y)>();
 
 			foreach (MatchGroup match in matches)
 			{
 				foreach ((int X, int Y) cell in match.Cells)
-				{
-					if (_grid[cell.X, cell.Y].Color != ItemColor.None)
-						clearedCount++;
+					initialCells.Add(cell);
 
-					_grid[cell.X, cell.Y] = Item.Empty;
+				CatalystType catalystType = CatalystTypeForMatch(match);
+				if (catalystType != CatalystType.None)
+				{
+					(int X, int Y) spawnCell = CatalystSpawnCell(match);
+					catalystSpawns[spawnCell] = Item.Create(match.Color, catalystType);
 				}
 			}
 
+			HashSet<(int X, int Y)> cellsToClear = ExpandForCatalystActivations(initialCells);
+
+			int clearedCount = 0;
+			foreach ((int X, int Y) cell in cellsToClear)
+			{
+				if (_grid[cell.X, cell.Y].Color != ItemColor.None)
+					clearedCount++;
+
+				_grid[cell.X, cell.Y] = catalystSpawns.TryGetValue(cell, out Item spawn) ? spawn : Item.Empty;
+			}
+
 			return clearedCount;
+		}
+
+		/// <summary>
+		/// Decides which Reaction Catalyst (if any) a match should spawn: a
+		/// horizontal Line4 spawns RowClear, a vertical Line4 spawns
+		/// ColumnClear, and a Line5Plus or Cross spawns a ColorBomb. A plain
+		/// Line3 spawns nothing.
+		/// </summary>
+		private static CatalystType CatalystTypeForMatch(MatchGroup match)
+		{
+			switch (match.Shape)
+			{
+				case MatchShape.Line4:
+					return IsHorizontalRun(match.Cells) ? CatalystType.RowClear : CatalystType.ColumnClear;
+				case MatchShape.Line5Plus:
+				case MatchShape.Cross:
+					return CatalystType.ColorBomb;
+				default:
+					return CatalystType.None;
+			}
+		}
+
+		private static bool IsHorizontalRun(IReadOnlyList<(int X, int Y)> cells)
+		{
+			int firstY = cells[0].Y;
+			foreach ((int X, int Y) cell in cells)
+			{
+				if (cell.Y != firstY)
+					return false;
+			}
+
+			return true;
+		}
+
+		/// <summary>
+		/// Picks a deterministic cell (the geometric middle of the match, by
+		/// sorted coordinate order rather than set-enumeration order) to host a
+		/// newly spawned catalyst item.
+		/// </summary>
+		private static (int X, int Y) CatalystSpawnCell(MatchGroup match)
+		{
+			var sorted = new List<(int X, int Y)>(match.Cells);
+			sorted.Sort((a, b) => a.X != b.X ? a.X.CompareTo(b.X) : a.Y.CompareTo(b.Y));
+			return sorted[sorted.Count / 2];
+		}
+
+		/// <summary>
+		/// Expands a set of just-matched cells to include every cell that any
+		/// catalyst among those cells would additionally clear (a full row, a
+		/// full column, or every cell sharing its color for a color bomb),
+		/// following chained catalyst activations until no new catalyst is
+		/// found. Bounded by total cell count so a pathological chain of
+		/// catalysts can never loop forever.
+		/// </summary>
+		private HashSet<(int X, int Y)> ExpandForCatalystActivations(IEnumerable<(int X, int Y)> initialCells)
+		{
+			var cellsToClear = new HashSet<(int X, int Y)>(initialCells);
+			var processed = new HashSet<(int X, int Y)>();
+			int maxIterations = Width * Height;
+
+			for (int iteration = 0; iteration < maxIterations; iteration++)
+			{
+				(int X, int Y)? next = null;
+				foreach ((int X, int Y) cell in cellsToClear)
+				{
+					if (processed.Contains(cell))
+						continue;
+
+					if (_grid[cell.X, cell.Y].Catalyst != CatalystType.None)
+					{
+						next = cell;
+						break;
+					}
+				}
+
+				if (!next.HasValue)
+					break;
+
+				processed.Add(next.Value);
+				AddCatalystEffectCells(next.Value, cellsToClear);
+			}
+
+			return cellsToClear;
+		}
+
+		private void AddCatalystEffectCells((int X, int Y) cell, HashSet<(int X, int Y)> cellsToClear)
+		{
+			Item item = _grid[cell.X, cell.Y];
+
+			switch (item.Catalyst)
+			{
+				case CatalystType.RowClear:
+					for (int x = 0; x < Width; x++)
+						cellsToClear.Add((x, cell.Y));
+					break;
+
+				case CatalystType.ColumnClear:
+					for (int y = 0; y < Height; y++)
+						cellsToClear.Add((cell.X, y));
+					break;
+
+				case CatalystType.ColorBomb:
+					for (int x = 0; x < Width; x++)
+					{
+						for (int y = 0; y < Height; y++)
+						{
+							if (_grid[x, y].Color == item.Color)
+								cellsToClear.Add((x, y));
+						}
+					}
+					break;
+			}
 		}
 
 		/// <summary>
