@@ -7,10 +7,11 @@ namespace PotionCraft.Gameplay
 {
 	/// <summary>
 	/// Bridges the pure C# GridModel/MatchFinder simulation to a visible,
-	/// swipe-controlled Unity scene using placeholder tiles (see TileView).
-	/// Attach to an empty GameObject in a scene with a camera tagged
-	/// MainCamera; it builds the board and every tile at runtime, so no
-	/// prefabs or art assets are required yet.
+	/// swipe-controlled Unity scene using placeholder tiles (see TileView)
+	/// and a runtime-built Canvas HUD (see GameHud). Attach to an empty
+	/// GameObject in a scene with a camera tagged MainCamera; it builds the
+	/// board, every tile, and the HUD at runtime, so no prefabs or art
+	/// assets are required yet.
 	/// </summary>
 	public sealed class GridView : MonoBehaviour
 	{
@@ -33,6 +34,7 @@ namespace PotionCraft.Gameplay
 		private GameSession _session;
 		private OrderBook _orderBook;
 		private IRewardedAdService _adService;
+		private GameHud _hud;
 		private bool _isWatchingAd;
 		private TileView[,] _tiles;
 		private bool _isResolving;
@@ -68,8 +70,14 @@ namespace PotionCraft.Gameplay
 			_session = new GameSession(_targetScore, _maxMoves, _orderBook, _maxContinues);
 			_adService = new MockRewardedAdService(this);
 
+			_hud = GameHud.Create(transform);
+			_hud.BuildOrderRows(_orderBook.Orders);
+			_hud.OnWatchAdClicked += RequestAdContinue;
+
 			_tiles = new TileView[_width, _height];
 			BuildTiles();
+
+			RefreshHud();
 		}
 
 		/// <summary>
@@ -212,6 +220,7 @@ namespace PotionCraft.Gameplay
 
 			var report = new CascadeReport(accumulator.StepCount, accumulator.TotalCellsCleared, accumulator.AllMatches);
 			_session.RegisterCascade(report);
+			RefreshHud();
 
 			if (!_model.HasPossibleMoves())
 			{
@@ -382,70 +391,49 @@ namespace PotionCraft.Gameplay
 				return;
 
 			_isWatchingAd = true;
+			RefreshHud();
+
 			AdRewardController.RequestContinue(_session, _adService, _continueBonusMoves, granted =>
 			{
 				_isWatchingAd = false;
+				RefreshHud();
 			});
 		}
 
-		// Minimal IMGUI HUD so score/moves/orders/win-lose/continue are
-		// visible without a Canvas or UI prefabs yet. Intended to be
-		// replaced by real UI in a later polish pass.
-		private void OnGUI()
+		/// <summary>
+		/// Pushes the current score/moves/orders/win-lose/continue state to
+		/// the Canvas HUD (see GameHud). Called after every state change
+		/// instead of redrawing every frame, since GameHud is a real UI
+		/// hierarchy rather than an immediate-mode OnGUI draw.
+		/// </summary>
+		private void RefreshHud()
 		{
-			if (_session == null)
-				return;
+			_hud.SetScore(_session.Score, _session.TargetScore);
+			_hud.SetMoves(_session.MovesRemaining);
 
-			var style = new GUIStyle(GUI.skin.label)
+			if (_orderBook != null)
 			{
-				fontSize = 28,
-				normal = { textColor = Color.white }
-			};
-
-			var orderStyle = new GUIStyle(GUI.skin.label)
-			{
-				fontSize = 22,
-				normal = { textColor = Color.white }
-			};
-
-			GUI.Label(new Rect(20, 20, 500, 40), $"Score: {_session.Score} / {_session.TargetScore}", style);
-			GUI.Label(new Rect(20, 60, 500, 40), $"Moves: {_session.MovesRemaining}", style);
-
-			int orderY = 108;
-			if (_orderBook != null && _orderBook.Orders.Count > 0)
-			{
-				GUI.Label(new Rect(20, orderY, 500, 30), "Книга заказов:", orderStyle);
-				orderY += 30;
-
 				for (int i = 0; i < _orderBook.Orders.Count; i++)
-				{
-					Order order = _orderBook.Orders[i];
-					string status = order.IsComplete ? "✓ готово" : $"{order.CollectedCount}/{order.RequiredCount}";
-					GUI.Label(new Rect(40, orderY, 500, 28), $"{order.Color}: {status}", orderStyle);
-					orderY += 28;
-				}
+					_hud.UpdateOrder(i, _orderBook.Orders[i]);
 			}
 
-			int endStateY = orderY + 10;
 			if (_session.State == GameSessionState.Won)
 			{
-				GUI.Label(new Rect(20, endStateY, 500, 60), "LEVEL COMPLETE", style);
+				_hud.SetEndState("LEVEL COMPLETE");
+				_hud.SetAdWatching(false);
+				_hud.SetAdButton(false, string.Empty);
 			}
 			else if (_session.State == GameSessionState.Lost)
 			{
-				GUI.Label(new Rect(20, endStateY, 500, 60), "OUT OF MOVES", style);
-
-				if (_isWatchingAd)
-				{
-					GUI.Label(new Rect(20, endStateY + 60, 500, 40), "Смотрите рекламу...", orderStyle);
-				}
-				else if (_session.CanContinueWithAd)
-				{
-					if (GUI.Button(new Rect(20, endStateY + 60, 340, 50), $"Смотреть рекламу за +{_continueBonusMoves} ходов"))
-					{
-						RequestAdContinue();
-					}
-				}
+				_hud.SetEndState("OUT OF MOVES");
+				_hud.SetAdWatching(_isWatchingAd);
+				_hud.SetAdButton(!_isWatchingAd && _session.CanContinueWithAd, $"Смотреть рекламу за +{_continueBonusMoves} ходов");
+			}
+			else
+			{
+				_hud.SetEndState(string.Empty);
+				_hud.SetAdWatching(false);
+				_hud.SetAdButton(false, string.Empty);
 			}
 		}
 	}
