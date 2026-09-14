@@ -20,6 +20,7 @@ namespace PotionCraft.Gameplay
 	{
 		public event Action OnWatchAdClicked;
 
+		private Image _dimOverlay;
 		private Text _scoreText;
 		private Text _movesText;
 		private GameObject _ordersContainer;
@@ -68,6 +69,25 @@ namespace PotionCraft.Gameplay
 		private void Build(Transform canvasTransform)
 		{
 			Font font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+
+			// --- Full-screen dim overlay, shown only while the level has
+			// ended (Won/Lost), so the center banner and ad button read
+			// clearly instead of blending into the busy, colorful board
+			// behind them. Created first so it renders behind every other
+			// HUD element (Canvas draws children in sibling order).
+			var dimGo = new GameObject("DimOverlay", typeof(RectTransform));
+			dimGo.transform.SetParent(canvasTransform, false);
+
+			var dimRect = dimGo.GetComponent<RectTransform>();
+			dimRect.anchorMin = Vector2.zero;
+			dimRect.anchorMax = Vector2.one;
+			dimRect.offsetMin = Vector2.zero;
+			dimRect.offsetMax = Vector2.zero;
+
+			_dimOverlay = dimGo.AddComponent<Image>();
+			_dimOverlay.color = new Color(0f, 0f, 0f, 0.55f);
+			_dimOverlay.raycastTarget = false;
+			dimGo.SetActive(false);
 
 			// --- Top-left: score, moves, order book ---
 			var topPanel = CreatePanel("TopPanel", canvasTransform, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(24f, -24f));
@@ -261,6 +281,17 @@ namespace PotionCraft.Gameplay
 			label.text = order.IsComplete
 				? $"{order.Color}: ✓ готово"
 				: $"{order.Color}: {order.CollectedCount}/{order.RequiredCount}";
+		}
+
+		/// <summary>
+		/// Shows or hides the full-screen dim overlay behind the center
+		/// banner/ad button. Should be true exactly while the session isn't
+		/// InProgress, so the end-of-level UI is always readable against the
+		/// colorful board instead of blending into it.
+		/// </summary>
+		public void SetDimOverlay(bool visible)
+		{
+			_dimOverlay.gameObject.SetActive(visible);
 		}
 
 		public void SetEndState(string text)
