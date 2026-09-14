@@ -2,7 +2,8 @@
     "name": "PotionCraft.Gameplay",
     "rootNamespace": "PotionCraft.Gameplay",
     "references": [
-        "PotionCraft.Core"
+        "PotionCraft.Core",
+        "UnityEngine.UI"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
