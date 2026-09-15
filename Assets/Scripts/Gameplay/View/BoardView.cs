@@ -6,19 +6,19 @@ using UnityEngine;
 namespace PotionCraft.Gameplay.View
 {
 	/// <summary>
-	/// Presentation layer for the board: owns the visual tile pool, listens to
-	/// BoardController events and replays the CascadeStep data produced by
-	/// BoardGravityEngine as coroutine-driven tweens.
+	/// Presentation layer for the board: owns the visual tile pool and the static
+	/// slot backdrop, listens to BoardController events and replays the
+	/// CascadeStep data produced by BoardGravityEngine as coroutine-driven tweens.
 	///
 	/// No third-party tween plugin is used (see TweenEasing) and no tile is ever
 	/// destroyed during cascades: cleared tiles shrink to zero and go back to the
 	/// pool, refills are rented from it.
 	///
-	/// Layout math is authoritative for both rendering and input: the grid is
-	/// centered on the world origin by CalculateOriginOffset, CellToWorld maps a
-	/// cell to a world position, and ScreenToGridPosition is the exact inverse of
-	/// that mapping (it is handed to SwipeInputReader so hitboxes can never drift
-	/// away from the rendered tiles).
+	/// Layout math is authoritative for rendering, backdrop and input alike: the
+	/// grid is centered horizontally and pushed down by _hudVerticalOffset to free
+	/// the top of the screen for the alchemical HUD; CellToWorld maps a cell to a
+	/// world position and ScreenToGridPosition is its exact inverse, so the shift
+	/// can never desynchronize the hitboxes.
 	/// </summary>
 	[DisallowMultipleComponent]
 	public sealed class BoardView : MonoBehaviour
@@ -27,11 +27,16 @@ namespace PotionCraft.Gameplay.View
 		[SerializeField] private BoardController _controller;
 		[SerializeField] private GameObject _tilePrefab;
 		[SerializeField] private Transform _tilesParent;
+		[SerializeField] private GameObject _slotPrefab;
+		[SerializeField] private Transform _slotsParent;
 
 		[Header("Layout")]
 		[SerializeField] private float _cellSize = 1.2f;
 		[SerializeField] private Vector2 _originOffset = Vector2.zero;
 		[SerializeField] private float _tileScaleFactor = 0.9f;
+
+		[Tooltip("World units the whole board is pushed down by, freeing the top of the screen for the HUD.")]
+		[SerializeField] private float _hudVerticalOffset = 1.2f;
 
 		[Header("Board setup (used only when the controller has no model yet)")]
 		[SerializeField] private int _boardWidth = 8;
@@ -55,23 +60,32 @@ namespace PotionCraft.Gameplay.View
 		private readonly List<Coroutine> _running = new List<Coroutine>(128);
 		private readonly List<TileView> _movingTiles = new List<TileView>(128);
 		private readonly List<Vector2Int> _movingTargets = new List<Vector2Int>(128);
+		private readonly List<BoardSlotView> _slots = new List<BoardSlotView>(64);
 
 		private Coroutine _swapRoutine;
 		private Coroutine _cascadeRoutine;
 		private WaitForSeconds _pauseBetweenCascades;
 		private int _createdTileCount;
+		private int _createdSlotCount;
 
 		public BoardController Controller => _controller;
 		public int PooledTileCount => _pool.Count;
 		public int ActiveTileCount => _activeTiles.Count;
+		public int SlotCount => _slots.Count;
 		public float CellSize => _cellSize;
 		public Vector2 OriginOffset => _originOffset;
+		public float HudVerticalOffset => _hudVerticalOffset;
 
 		private void Awake()
 		{
 			if (_tilesParent == null)
 			{
 				_tilesParent = transform;
+			}
+
+			if (_slotsParent == null)
+			{
+				_slotsParent = transform;
 			}
 
 			_pauseBetweenCascades = new WaitForSeconds(_interCascadePause);
@@ -194,17 +208,19 @@ namespace PotionCraft.Gameplay.View
 		// --- layout --------------------------------------------------------
 
 		/// <summary>
-		/// Centers the grid on the world origin: cell (0,0) sits half a board to the
-		/// left and below origin, so the visual center of a width x height board is
-		/// exactly (0,0) regardless of board size.
+		/// Centers the grid horizontally on the world origin and pushes it down by
+		/// _hudVerticalOffset so the alchemical HUD owns the top of the screen.
+		/// Every other coordinate in the view (slots, tiles, input) derives from the
+		/// offset computed here, so the shift stays consistent by construction.
 		/// </summary>
 		private void CalculateOriginOffset(int width, int height)
 		{
 			_originOffset = new Vector2(-(width - 1) * _cellSize * 0.5f, -(height - 1) * _cellSize * 0.5f);
+			_originOffset.y -= _hudVerticalOffset;
 		}
 
 		/// <summary>
-		/// Single source of truth for tile placement. Deliberately a plain world
+		/// Single source of truth for cell placement. Deliberately a plain world
 		/// position (no parent transform math) so ScreenToGridPosition can be its
 		/// exact inverse; keep the board root at identity transform.
 		/// </summary>
@@ -220,8 +236,9 @@ namespace PotionCraft.Gameplay.View
 
 		/// <summary>
 		/// Inverse of CellToWorld: converts a screen point into a grid cell, or null
-		/// when the point falls outside the board. Passed to SwipeInputReader so
-		/// touch hitboxes always match the rendered tiles.
+		/// when the point falls outside the board. Because it subtracts the very same
+		/// _originOffset that already contains the HUD shift, the hitboxes follow the
+		/// board down automatically. Passed to SwipeInputReader.
 		/// </summary>
 		public Vector2Int? ScreenToGridPosition(Vector2 screenPosition)
 		{
@@ -244,7 +261,10 @@ namespace PotionCraft.Gameplay.View
 
 		// --- board construction --------------------------------------------
 
-		/// <summary>Builds (or rebuilds) every visual tile from the logical model.</summary>
+		/// <summary>
+		/// Builds (or rebuilds) the whole visual board: layout first, then the static
+		/// slot backdrop, then the gameplay tiles on top of it.
+		/// </summary>
 		public void BuildBoard()
 		{
 			GridModel model = _controller.GridModel;
@@ -255,9 +275,12 @@ namespace PotionCraft.Gameplay.View
 
 			ReleaseAllTiles();
 
-			// Centering must happen before the first tile is spawned, otherwise the
-			// board would be built around a stale offset.
+			// Centering must happen before anything is spawned, otherwise the board
+			// would be built around a stale offset.
 			CalculateOriginOffset(model.Width, model.Height);
+
+			// Backdrop first so the slots are guaranteed to exist under every tile.
+			BuildSlots(model.Width, model.Height);
 
 			for (int x = 0; x < model.Width; x++)
 			{
@@ -278,6 +301,68 @@ namespace PotionCraft.Gameplay.View
 					_activeTiles[cell] = tile;
 				}
 			}
+		}
+
+		/// <summary>
+		/// Generates the checkerboard of recessed slots. The pool is preallocated in
+		/// one pass at level start: width * height slot objects are created once and
+		/// only ever repositioned afterwards, so rebuilding the board allocates
+		/// nothing. Surplus slots from a larger previous board are hidden, not
+		/// destroyed.
+		/// </summary>
+		private void BuildSlots(int width, int height)
+		{
+			int required = width * height;
+
+			for (int i = _slots.Count; i < required; i++)
+			{
+				_slots.Add(CreateSlot());
+			}
+
+			int index = 0;
+
+			for (int x = 0; x < width; x++)
+			{
+				for (int y = 0; y < height; y++)
+				{
+					BoardSlotView slot = _slots[index++];
+					Vector2Int cell = new Vector2Int(x, y);
+					Vector3 pos = new Vector3(_originOffset.x + (x * _cellSize), _originOffset.y + (y * _cellSize), 0f);
+
+					slot.gameObject.SetActive(true);
+					slot.Init(cell, pos, _cellSize);
+				}
+			}
+
+			for (int i = required; i < _slots.Count; i++)
+			{
+				_slots[i].gameObject.SetActive(false);
+			}
+		}
+
+		private BoardSlotView CreateSlot()
+		{
+			GameObject go;
+
+			if (_slotPrefab != null)
+			{
+				go = Instantiate(_slotPrefab, _slotsParent);
+			}
+			else
+			{
+				go = new GameObject("Slot");
+				go.transform.SetParent(_slotsParent, false);
+			}
+
+			go.name = $"Slot_{_createdSlotCount++}";
+
+			BoardSlotView slot = go.GetComponent<BoardSlotView>();
+			if (slot == null)
+			{
+				slot = go.AddComponent<BoardSlotView>();
+			}
+
+			return slot;
 		}
 
 		private void ReleaseAllTiles()
