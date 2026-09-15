@@ -42,15 +42,15 @@ namespace PotionCraft.Core
 	public enum CatalystType
 	{
 		None = 0,
-		/// Clears the item's entire row when activated. Spawned by a
-		/// horizontal Line4 match.
-		RowClear = 1,
-		/// Clears the item's entire column when activated. Spawned by a
-		/// vertical Line4 match.
-		ColumnClear = 2,
-		/// Clears every cell on the board sharing the item's color when
-		/// activated. Spawned by a Line5Plus or Cross match.
-		ColorBomb = 3
+		HorizontalLine = 1,
+		VerticalLine = 2,
+		BombArea = 3,
+		ColorBomb = 4,
+
+		/// <summary>Alias for HorizontalLine: clears the item's entire row.</summary>
+		RowClear = HorizontalLine,
+		/// <summary>Alias for VerticalLine: clears the item's entire column.</summary>
+		ColumnClear = VerticalLine
 	}
 
 	/// <summary>

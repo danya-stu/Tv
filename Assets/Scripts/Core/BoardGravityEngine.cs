@@ -222,11 +222,11 @@ namespace PotionCraft.Core
 			switch (specialType)
 			{
 				case SpecialType.HorizontalLine:
-					return CatalystType.RowClear;
+					return CatalystType.HorizontalLine;
 				case SpecialType.VerticalLine:
-					return CatalystType.ColumnClear;
+					return CatalystType.VerticalLine;
 				case SpecialType.BombArea:
-					return CatalystType.ColorBomb;
+					return CatalystType.BombArea;
 				case SpecialType.ColorBomb:
 					return CatalystType.ColorBomb;
 				default:

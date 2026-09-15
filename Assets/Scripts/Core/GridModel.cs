@@ -48,6 +48,11 @@ namespace PotionCraft.Core
 			return x >= 0 && x < Width && y >= 0 && y < Height;
 		}
 
+		/// <summary>
+		/// Direct reference to the internal 2D array for zero-allocation engine operations.
+		/// </summary>
+		public Item[,] RawGrid => _grid;
+
 		public Item GetItem(int x, int y)
 		{
 			if (!IsValidCoordinate(x, y))

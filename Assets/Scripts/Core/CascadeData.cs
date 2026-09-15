@@ -185,7 +185,7 @@ namespace PotionCraft.Core
 		/// <summary>Number of playable colors in ItemColor, excluding None.</summary>
 		public const int MaxColors = 5;
 
-		private readonly Random _random;
+		private readonly System.Random _random;
 
 		public DefaultSpawnWeightProvider()
 			: this(Environment.TickCount)
@@ -194,7 +194,7 @@ namespace PotionCraft.Core
 
 		public DefaultSpawnWeightProvider(int seed)
 		{
-			_random = new Random(seed);
+			_random = new System.Random(seed);
 		}
 
 		public ItemColor GetNextColor(int x, int y, int totalColors)

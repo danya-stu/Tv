@@ -3,6 +3,7 @@
     "rootNamespace": "PotionCraft.Tests.Editor",
     "references": [
         "PotionCraft.Core",
+        "PotionCraft.Gameplay",
         "UnityEngine.TestRunner",
         "UnityEditor.TestRunner"
     ],

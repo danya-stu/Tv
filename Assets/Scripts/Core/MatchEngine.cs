@@ -229,22 +229,35 @@ namespace PotionCraft.Core
 					}
 				}
 
+				// Check if any line in the component has Length >= 5
+				bool hasLine5Plus = false;
+				RawLine line5 = default;
+				for (int l = 0; l < s_componentLines.Count; l++)
+				{
+					if (s_componentLines[l].Length >= 5)
+					{
+						hasLine5Plus = true;
+						line5 = s_componentLines[l];
+						break;
+					}
+				}
+
 				// Determine created special bonus
 				SpecialType specialType = SpecialType.None;
-				if (s_componentLines.Count > 1)
+				if (hasLine5Plus)
 				{
-					// L-, T-, or Cross-shape match of 5 or more tiles
+					// Technical Supervisor Priority: Length >= 5 ALWAYS creates ColorBomb, even in an intersecting cluster
+					specialType = SpecialType.ColorBomb;
+				}
+				else if (s_componentLines.Count > 1)
+				{
+					// BombArea is created ONLY if intersecting lines are 3-4 tiles long
 					specialType = SpecialType.BombArea;
 				}
 				else
 				{
 					RawLine singleLine = s_componentLines[0];
-					if (singleLine.Length >= 5)
-					{
-						// Line of 5+ items creates ColorBomb
-						specialType = SpecialType.ColorBomb;
-					}
-					else if (singleLine.Length == 4)
+					if (singleLine.Length == 4)
 					{
 						// Line of 4 items: horizontal match spawns VerticalLine (to clear column),
 						// and vertical match spawns HorizontalLine (to clear row)
@@ -265,7 +278,13 @@ namespace PotionCraft.Core
 					else
 					{
 						// Otherwise (cascade or unswapped match), place in the geometric center of the combination
-						if (s_componentLines.Count > 1 && s_componentIntersections.Count > 0)
+						if (hasLine5Plus)
+						{
+							spawnPosition = line5.IsHorizontal
+								? new Vector2Int(line5.StartX + line5.Length / 2, line5.StartY)
+								: new Vector2Int(line5.StartX, line5.StartY + line5.Length / 2);
+						}
+						else if (s_componentLines.Count > 1 && s_componentIntersections.Count > 0)
 						{
 							// Center of an L/T shape is its intersection point
 							spawnPosition = s_componentIntersections[0];
