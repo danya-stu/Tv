@@ -239,15 +239,14 @@ namespace PotionCraft.Core
 				return;
 			}
 
-			// Fallback: a single special swapped with a plain tile simply detonates.
-			if (specialA != SpecialType.None)
-			{
-				ExplodeSingleSpecial(grid, w, h, posA, specialA, itemA.Color, outDestroyedCells);
-			}
+			// Supervisor ruling (Sprint 5): a single special swiped against a plain
+			// tile detonates in the swap target cell, never in the source cell.
+			SpecialType single = specialB != SpecialType.None ? specialB : specialA;
+			ItemColor singleColor = specialB != SpecialType.None ? itemB.Color : itemA.Color;
 
-			if (specialB != SpecialType.None)
+			if (single != SpecialType.None)
 			{
-				ExplodeSingleSpecial(grid, w, h, posB, specialB, itemB.Color, outDestroyedCells);
+				ExplodeSingleSpecial(grid, w, h, posB, single, singleColor, outDestroyedCells);
 			}
 		}
 
