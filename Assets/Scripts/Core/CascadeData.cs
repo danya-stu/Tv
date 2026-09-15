@@ -107,7 +107,8 @@ namespace PotionCraft.Core
 
 	/// <summary>
 	/// One iteration of a turn: what was destroyed, what specials appeared,
-	/// how existing tiles fell, and what was spawned to refill the board.
+	/// which tiles were recolored by a Reaction Catalyst, how existing tiles fell,
+	/// and what was spawned to refill the board.
 	/// Instances are pooled and reused by BoardGravityEngine, so callers must
 	/// consume a step before the next ResolveFullTurnCascades call.
 	/// </summary>
@@ -120,6 +121,12 @@ namespace PotionCraft.Core
 		public Dictionary<ItemColor, int> StepEssences { get; }
 		public int CascadeIndex { get; set; }
 
+		/// <summary>Cells recolored by a ColorBomb combination or a Reaction Catalyst.</summary>
+		public List<Vector2Int> TransmutedTiles { get; }
+
+		/// <summary>Color consumed by the transmutation, or None when nothing was recolored.</summary>
+		public ItemColor TransmuteColor { get; set; }
+
 		public CascadeStep(int initialCapacity = 32)
 		{
 			DestroyedTiles = new List<Vector2Int>(initialCapacity);
@@ -127,6 +134,8 @@ namespace PotionCraft.Core
 			Moves = new List<TileMoveAction>(initialCapacity);
 			Spawns = new List<TileSpawnAction>(initialCapacity);
 			StepEssences = new Dictionary<ItemColor, int>(8);
+			TransmutedTiles = new List<Vector2Int>(initialCapacity);
+			TransmuteColor = ItemColor.None;
 			CascadeIndex = 0;
 		}
 
@@ -138,6 +147,8 @@ namespace PotionCraft.Core
 			Moves.Clear();
 			Spawns.Clear();
 			StepEssences.Clear();
+			TransmutedTiles.Clear();
+			TransmuteColor = ItemColor.None;
 			CascadeIndex = 0;
 		}
 

@@ -9,9 +9,9 @@ namespace PotionCraft.Core
 	/// no GameObject: the engine mutates the logical grid and reports every movement
 	/// as plain data for the animation layer to replay.
 	///
-	/// GC Zero Allocation: all scratch state (match report, cascade step pool, special
-	/// buffer) is static and reused via Clear(). Nothing is allocated inside the
-	/// cascade loop after the first warm-up turn.
+	/// GC Zero Allocation: all scratch state (match report, cascade step pool,
+	/// destruction set, chain-reaction work list) is static and reused via Clear().
+	/// Nothing is allocated inside the cascade loop after the first warm-up turn.
 	///
 	/// Not thread-safe by design (shared static buffers): call from the game thread.
 	/// </summary>
@@ -20,6 +20,10 @@ namespace PotionCraft.Core
 		private static readonly MatchReport s_report = new MatchReport(128);
 		private static readonly List<CascadeStep> s_stepPool = new List<CascadeStep>(8);
 		private static readonly List<SpecialCreationInfo> s_pendingSpecials = new List<SpecialCreationInfo>(8);
+		private static readonly HashSet<Vector2Int> s_destroyedSet = new HashSet<Vector2Int>();
+		private static readonly HashSet<Vector2Int> s_blastBuffer = new HashSet<Vector2Int>();
+		private static readonly List<Vector2Int> s_chainWorkList = new List<Vector2Int>(256);
+		private static readonly List<Vector2Int> s_transmutedBuffer = new List<Vector2Int>(128);
 
 		/// <summary>
 		/// Collapses every column downwards, compacting existing tiles towards y = 0
@@ -106,15 +110,21 @@ namespace PotionCraft.Core
 		}
 
 		/// <summary>
-		/// Resolves a whole turn: match -> spawn specials -> clear -> collapse -> refill,
+		/// Resolves a whole turn: optional special-swap activation, then
+		/// match -> chain detonation -> clear -> spawn specials -> collapse -> refill,
 		/// repeated until the board is stable or maxCascadesLimit is reached.
 		/// Every iteration is recorded as a CascadeStep appended to outCascadeSteps.
+		///
+		/// When specialSwapSource and initialSwapTarget both point at a swap that
+		/// involves a special tile, that activation becomes cascade step 0 even if it
+		/// forms no classic match. Any catalyst swept up by a later match detonates
+		/// through ExplodeSingleSpecial, and its blast can trigger further catalysts.
 		///
 		/// The returned steps come from an internal pool and stay valid only until the
 		/// next call, so the presentation layer must consume them before resolving the
 		/// following turn.
 		/// </summary>
-		/// <returns>True if at least one match occurred during the turn.</returns>
+		/// <returns>True if the turn produced at least one match or special activation.</returns>
 		public static bool ResolveFullTurnCascades(
 			Item[,] grid,
 			int width,
@@ -123,7 +133,8 @@ namespace PotionCraft.Core
 			int colorCount,
 			List<CascadeStep> outCascadeSteps,
 			Vector2Int? initialSwapTarget = null,
-			int maxCascadesLimit = 20)
+			int maxCascadesLimit = 20,
+			Vector2Int? specialSwapSource = null)
 		{
 			if (grid == null)
 				throw new ArgumentNullException(nameof(grid));
@@ -142,12 +153,20 @@ namespace PotionCraft.Core
 				return false;
 			}
 
-			bool anyMatch = false;
+			bool anyResolution = false;
 			int cascadeIndex = 0;
+
+			// Step 0: a swap of two specials, or a ColorBomb with a plain tile, resolves
+			// before any match scan and consumes the player's move on its own.
+			if (TryResolveOpeningSpecialSwap(grid, w, h, weightProvider, colorCount, outCascadeSteps, specialSwapSource, initialSwapTarget))
+			{
+				anyResolution = true;
+				cascadeIndex = 1;
+			}
 
 			while (cascadeIndex < maxCascadesLimit)
 			{
-				// Step 1: the swap hint only applies to the player's own move, never to cascades.
+				// The swap hint only applies to the player's own move, never to cascades.
 				Vector2Int? swapTarget = cascadeIndex == 0 ? initialSwapTarget : null;
 
 				if (!MatchEngine.FindMatches(grid, w, h, s_report, swapTarget))
@@ -155,24 +174,22 @@ namespace PotionCraft.Core
 					break;
 				}
 
-				anyMatch = true;
+				anyResolution = true;
 				CascadeStep step = RentStep(cascadeIndex);
 
-				// Step 2a: record the destroyed cells and clear them.
+				// Collect the matched cells, then let every catalyst caught by the match
+				// detonate, chaining into further catalysts inside the blast.
+				s_destroyedSet.Clear();
 				List<Vector2Int> matched = s_report.MatchedTiles;
 				for (int i = 0; i < matched.Count; i++)
 				{
-					Vector2Int cell = matched[i];
-					step.DestroyedTiles.Add(cell);
-					grid[cell.x, cell.y] = Item.Empty;
+					s_destroyedSet.Add(matched[i]);
 				}
 
-				foreach (KeyValuePair<ItemColor, int> essence in s_report.GatheredEssences)
-				{
-					step.AddEssence(essence.Key, essence.Value);
-				}
+				ExpandChainReactions(grid, w, h, s_destroyedSet);
+				CommitDestruction(grid, w, h, step, s_destroyedSet);
 
-				// Step 2b: materialize the specials on top of the cleared cells.
+				// Materialize the specials created by this match on top of the cleared cells.
 				s_pendingSpecials.Clear();
 				List<SpecialCreationInfo> specials = s_report.CreatedSpecials;
 				for (int i = 0; i < specials.Count; i++)
@@ -182,56 +199,181 @@ namespace PotionCraft.Core
 					s_pendingSpecials.Add(info);
 				}
 
-				for (int i = 0; i < s_pendingSpecials.Count; i++)
-				{
-					SpecialCreationInfo info = s_pendingSpecials[i];
-					Vector2Int position = info.Position;
+				PlacePendingSpecials(grid, w, h);
 
-					if (position.x < 0 || position.x >= w || position.y < 0 || position.y >= h)
-					{
-						continue;
-					}
-
-					if (info.Color == ItemColor.None)
-					{
-						continue;
-					}
-
-					grid[position.x, position.y] = Item.Create(info.Color, ToCatalyst(info.Type));
-				}
-
-				// Step 3 and 4: gravity, then refill of everything still empty.
+				// Gravity, then refill of everything still empty.
 				CollapseColumns(grid, w, h, step.Moves);
 				RefillEmptyCells(grid, w, h, weightProvider, colorCount, step.Spawns);
 
-				// Step 5: publish the step and continue scanning the new board state.
 				outCascadeSteps.Add(step);
 				cascadeIndex++;
 			}
 
-			return anyMatch;
+			return anyResolution;
+		}
+
+		/// <summary>
+		/// Runs the special activation for the player's swap when it involves a
+		/// special tile, recording it as cascade step 0.
+		/// </summary>
+		private static bool TryResolveOpeningSpecialSwap(
+			Item[,] grid,
+			int w,
+			int h,
+			ISpawnWeightProvider weightProvider,
+			int colorCount,
+			List<CascadeStep> outCascadeSteps,
+			Vector2Int? specialSwapSource,
+			Vector2Int? initialSwapTarget)
+		{
+			if (!specialSwapSource.HasValue || !initialSwapTarget.HasValue)
+			{
+				return false;
+			}
+
+			Vector2Int posA = specialSwapSource.Value;
+			Vector2Int posB = initialSwapTarget.Value;
+
+			if (!InBounds(posA, w, h) || !InBounds(posB, w, h) || posA == posB)
+			{
+				return false;
+			}
+
+			Item itemA = grid[posA.x, posA.y];
+			Item itemB = grid[posB.x, posB.y];
+
+			if (!SpecialActivationEngine.IsSpecialSwap(itemA, itemB))
+			{
+				return false;
+			}
+
+			CascadeStep step = RentStep(0);
+
+			s_destroyedSet.Clear();
+			s_transmutedBuffer.Clear();
+			ItemColor transmuteColor = ItemColor.None;
+
+			SpecialActivationEngine.ResolveSpecialSwap(grid, w, h, posA, posB, s_destroyedSet, s_transmutedBuffer, ref transmuteColor);
+
+			if (s_destroyedSet.Count == 0)
+			{
+				return false;
+			}
+
+			// Catalysts caught inside the activation blast detonate as well.
+			ExpandChainReactions(grid, w, h, s_destroyedSet);
+
+			step.TransmuteColor = transmuteColor;
+			for (int i = 0; i < s_transmutedBuffer.Count; i++)
+			{
+				step.TransmutedTiles.Add(s_transmutedBuffer[i]);
+			}
+
+			CommitDestruction(grid, w, h, step, s_destroyedSet);
+			CollapseColumns(grid, w, h, step.Moves);
+			RefillEmptyCells(grid, w, h, weightProvider, colorCount, step.Spawns);
+
+			outCascadeSteps.Add(step);
+			return true;
+		}
+
+		/// <summary>
+		/// Iteratively detonates every special tile inside the destruction set and
+		/// whatever new specials its blast reaches. Implemented as a work list rather
+		/// than real recursion, so a long chain can never blow the stack, and each
+		/// catalyst is consumed exactly once.
+		/// </summary>
+		private static void ExpandChainReactions(Item[,] grid, int w, int h, HashSet<Vector2Int> destroyed)
+		{
+			s_chainWorkList.Clear();
+			foreach (Vector2Int cell in destroyed)
+			{
+				s_chainWorkList.Add(cell);
+			}
+
+			for (int i = 0; i < s_chainWorkList.Count; i++)
+			{
+				Vector2Int cell = s_chainWorkList[i];
+				if (!InBounds(cell, w, h))
+				{
+					continue;
+				}
+
+				Item item = grid[cell.x, cell.y];
+				SpecialType special = SpecialActivationEngine.ToSpecialType(item.Catalyst);
+				if (special == SpecialType.None)
+				{
+					continue;
+				}
+
+				// Strip the catalyst first so it cannot detonate twice through a loop.
+				grid[cell.x, cell.y] = Item.Create(item.Color);
+
+				s_blastBuffer.Clear();
+				SpecialActivationEngine.ExplodeSingleSpecial(grid, w, h, cell, special, item.Color, s_blastBuffer);
+
+				foreach (Vector2Int blastCell in s_blastBuffer)
+				{
+					if (destroyed.Add(blastCell))
+					{
+						s_chainWorkList.Add(blastCell);
+					}
+				}
+			}
+		}
+
+		/// <summary>
+		/// Clears every collected cell, recording the destroyed coordinates and the
+		/// essence harvested from them into the step.
+		/// </summary>
+		private static void CommitDestruction(Item[,] grid, int w, int h, CascadeStep step, HashSet<Vector2Int> cells)
+		{
+			foreach (Vector2Int cell in cells)
+			{
+				if (!InBounds(cell, w, h))
+				{
+					continue;
+				}
+
+				Item item = grid[cell.x, cell.y];
+				if (item.Color == ItemColor.None)
+				{
+					continue;
+				}
+
+				step.DestroyedTiles.Add(cell);
+				step.AddEssence(item.Color, 1);
+				grid[cell.x, cell.y] = Item.Empty;
+			}
+		}
+
+		private static void PlacePendingSpecials(Item[,] grid, int w, int h)
+		{
+			for (int i = 0; i < s_pendingSpecials.Count; i++)
+			{
+				SpecialCreationInfo info = s_pendingSpecials[i];
+				Vector2Int position = info.Position;
+
+				if (!InBounds(position, w, h))
+				{
+					continue;
+				}
+
+				if (info.Color == ItemColor.None)
+				{
+					continue;
+				}
+
+				grid[position.x, position.y] = Item.Create(info.Color, ToCatalyst(info.Type));
+			}
 		}
 
 		/// <summary>
 		/// Maps a detected match shape onto the catalyst effect carried by the item.
-		/// BombArea currently has no dedicated CatalystType, so it falls back to
-		/// ColorBomb until the catalyst enum is extended.
 		/// </summary>
 		public static CatalystType ToCatalyst(SpecialType specialType)
 		{
-			switch (specialType)
-			{
-				case SpecialType.HorizontalLine:
-					return CatalystType.HorizontalLine;
-				case SpecialType.VerticalLine:
-					return CatalystType.VerticalLine;
-				case SpecialType.BombArea:
-					return CatalystType.BombArea;
-				case SpecialType.ColorBomb:
-					return CatalystType.ColorBomb;
-				default:
-					return CatalystType.None;
-			}
+			return SpecialActivationEngine.ToCatalystType(specialType);
 		}
 
 		private static CascadeStep RentStep(int index)
@@ -245,6 +387,11 @@ namespace PotionCraft.Core
 			step.Clear();
 			step.CascadeIndex = index;
 			return step;
+		}
+
+		private static bool InBounds(Vector2Int pos, int w, int h)
+		{
+			return pos.x >= 0 && pos.x < w && pos.y >= 0 && pos.y < h;
 		}
 
 		private static int ClampWidth(Item[,] grid, int width)
