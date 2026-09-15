@@ -33,7 +33,9 @@ namespace PotionCraft.Gameplay.View
 		[Header("Layout")]
 		[SerializeField] private float _cellSize = 1.2f;
 		[SerializeField] private Vector2 _originOffset = Vector2.zero;
-		[SerializeField] private float _tileScaleFactor = 0.9f;
+
+		[Tooltip("Fraction of a cell the flask artwork occupies, leaving a small gutter around the slot.")]
+		[SerializeField] private float _tileScaleFactor = 0.88f;
 
 		[Tooltip("World units the whole board is pushed down by, freeing the top of the screen for the HUD.")]
 		[SerializeField] private float _hudVerticalOffset = 1.2f;
@@ -75,6 +77,7 @@ namespace PotionCraft.Gameplay.View
 		public float CellSize => _cellSize;
 		public Vector2 OriginOffset => _originOffset;
 		public float HudVerticalOffset => _hudVerticalOffset;
+		public float TileScaleFactor => _tileScaleFactor;
 
 		private void Awake()
 		{
@@ -101,6 +104,10 @@ namespace PotionCraft.Gameplay.View
 				Debug.LogError("BoardView could not find a BoardController in the scene; the board will not be built.", this);
 				return;
 			}
+
+			// Bake every flask variant while the level is still loading, so the first
+			// cascade never pays for texture generation.
+			PotionSpriteFactory.Prewarm();
 
 			EnsureModelInitialized();
 			BindInput();
