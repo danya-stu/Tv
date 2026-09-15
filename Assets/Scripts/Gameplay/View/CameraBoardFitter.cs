@@ -66,7 +66,10 @@ namespace PotionCraft.Gameplay.View
 			}
 
 			float targetWidth = (_boardWidth * _cellSize) + (_padding * 2f);
-			_camera.orthographicSize = (targetWidth / 2f) / aspect;
+			float targetHeight = (_boardWidth * _cellSize) + (_padding * 2f); // для квадратного поля 8x8
+			float sizeByWidth = (targetWidth / 2f) / aspect;
+			float sizeByHeight = targetHeight / 2f;
+			_camera.orthographicSize = Mathf.Max(sizeByWidth, sizeByHeight);
 		}
 
 		/// <summary>Lets a bootstrap object push the real board metrics at runtime.</summary>
