@@ -13,6 +13,12 @@ namespace PotionCraft.Gameplay.View
 	/// No third-party tween plugin is used (see TweenEasing) and no tile is ever
 	/// destroyed during cascades: cleared tiles shrink to zero and go back to the
 	/// pool, refills are rented from it.
+	///
+	/// Layout math is authoritative for both rendering and input: the grid is
+	/// centered on the world origin by CalculateOriginOffset, CellToWorld maps a
+	/// cell to a world position, and ScreenToGridPosition is the exact inverse of
+	/// that mapping (it is handed to SwipeInputReader so hitboxes can never drift
+	/// away from the rendered tiles).
 	/// </summary>
 	[DisallowMultipleComponent]
 	public sealed class BoardView : MonoBehaviour
@@ -58,6 +64,8 @@ namespace PotionCraft.Gameplay.View
 		public BoardController Controller => _controller;
 		public int PooledTileCount => _pool.Count;
 		public int ActiveTileCount => _activeTiles.Count;
+		public float CellSize => _cellSize;
+		public Vector2 OriginOffset => _originOffset;
 
 		private void Awake()
 		{
@@ -81,6 +89,7 @@ namespace PotionCraft.Gameplay.View
 			}
 
 			EnsureModelInitialized();
+			BindInput();
 			Subscribe();
 			BuildBoard();
 		}
@@ -151,6 +160,18 @@ namespace PotionCraft.Gameplay.View
 				_initialMoves);
 		}
 
+		/// <summary>
+		/// Hands the view's own screen-to-cell math to the hardware reader, so the
+		/// reader no longer has to guess the cell size or the centering offset.
+		/// </summary>
+		private void BindInput()
+		{
+			if (_controller != null && _controller.InputReader != null)
+			{
+				_controller.InputReader.SetCellResolver(ScreenToGridPosition);
+			}
+		}
+
 		private void Subscribe()
 		{
 			_controller.OnSwapExecuted += HandleSwapExecuted;
@@ -172,15 +193,53 @@ namespace PotionCraft.Gameplay.View
 
 		// --- layout --------------------------------------------------------
 
+		/// <summary>
+		/// Centers the grid on the world origin: cell (0,0) sits half a board to the
+		/// left and below origin, so the visual center of a width x height board is
+		/// exactly (0,0) regardless of board size.
+		/// </summary>
+		private void CalculateOriginOffset(int width, int height)
+		{
+			_originOffset = new Vector2(-(width - 1) * _cellSize * 0.5f, -(height - 1) * _cellSize * 0.5f);
+		}
+
+		/// <summary>
+		/// Single source of truth for tile placement. Deliberately a plain world
+		/// position (no parent transform math) so ScreenToGridPosition can be its
+		/// exact inverse; keep the board root at identity transform.
+		/// </summary>
 		public Vector3 CellToWorld(int x, int y)
 		{
-			Vector3 local = new Vector3(_originOffset.x + (x * _cellSize), _originOffset.y + (y * _cellSize), 0f);
-			return _tilesParent == null ? local : _tilesParent.TransformPoint(local);
+			return new Vector3(_originOffset.x + (x * _cellSize), _originOffset.y + (y * _cellSize), 0f);
 		}
 
 		public Vector3 CellToWorld(Vector2Int cell)
 		{
 			return CellToWorld(cell.x, cell.y);
+		}
+
+		/// <summary>
+		/// Inverse of CellToWorld: converts a screen point into a grid cell, or null
+		/// when the point falls outside the board. Passed to SwipeInputReader so
+		/// touch hitboxes always match the rendered tiles.
+		/// </summary>
+		public Vector2Int? ScreenToGridPosition(Vector2 screenPosition)
+		{
+			if (Camera.main == null || _controller == null || _controller.GridModel == null)
+			{
+				return null;
+			}
+
+			Vector3 world = Camera.main.ScreenToWorldPoint(screenPosition);
+			int x = Mathf.RoundToInt((world.x - _originOffset.x) / _cellSize);
+			int y = Mathf.RoundToInt((world.y - _originOffset.y) / _cellSize);
+
+			if (_controller.GridModel.IsValidCoordinate(x, y))
+			{
+				return new Vector2Int(x, y);
+			}
+
+			return null;
 		}
 
 		// --- board construction --------------------------------------------
@@ -196,6 +255,10 @@ namespace PotionCraft.Gameplay.View
 
 			ReleaseAllTiles();
 
+			// Centering must happen before the first tile is spawned, otherwise the
+			// board would be built around a stale offset.
+			CalculateOriginOffset(model.Width, model.Height);
+
 			for (int x = 0; x < model.Width; x++)
 			{
 				for (int y = 0; y < model.Height; y++)
@@ -207,9 +270,11 @@ namespace PotionCraft.Gameplay.View
 					}
 
 					Vector2Int cell = new Vector2Int(x, y);
+					Vector3 pos = new Vector3(_originOffset.x + (x * _cellSize), _originOffset.y + (y * _cellSize), 0f);
+
 					TileView tile = RentTile();
 					tile.GridPosition = cell;
-					tile.SetData(item, CellToWorld(cell));
+					tile.SetData(item, pos);
 					_activeTiles[cell] = tile;
 				}
 			}
