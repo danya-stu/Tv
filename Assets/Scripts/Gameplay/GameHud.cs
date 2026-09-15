@@ -4,6 +4,7 @@ using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
 using PotionCraft.Core;
+using PotionCraft.Gameplay.View;
 
 namespace PotionCraft.Gameplay
 {

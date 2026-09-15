@@ -14,7 +14,6 @@ namespace PotionCraft.Gameplay
 	{
 		[Header("References")]
 		[SerializeField] private SwipeInputReader _inputReader;
-		[SerializeField] private GridView _gridView;
 
 		[Header("Rules & Configuration")]
 		[SerializeField] private int _colorCount = 5;

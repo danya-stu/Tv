@@ -317,7 +317,9 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 1655440088}
-  - component: {fileID: 1655440087}
+  - component: {fileID: 1655440089}
+  - component: {fileID: 1655440090}
+  - component: {fileID: 1655440091}
   m_Layer: 0
   m_Name: GridController
   m_TagString: Untagged
@@ -325,7 +327,7 @@ GameObject:
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
   m_IsActive: 1
---- !u!114 &1655440087
+--- !u!114 &1655440089
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -334,16 +336,58 @@ MonoBehaviour:
   m_GameObject: {fileID: 1655440086}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 614c69512ce15bc4ab019243ab3865dd, type: 3}
+  m_Script: {fileID: 11500000, guid: 5e02a50e6c0e4e7692451086349ab0dd, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: PotionCraft.Gameplay::PotionCraft.Gameplay.GridView
-  _width: 8
-  _height: 8
-  _cellSize: 1
+  m_EditorClassIdentifier: PotionCraft.Gameplay::PotionCraft.Gameplay.SwipeInputReader
+  _swipeDeadzone: 15
+  _swipeThreshold: 40
+  _camera: {fileID: 272470390}
+--- !u!114 &1655440090
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1655440086}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 17d3ecb9b57b491a910fbaca8bcfbcc8, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: PotionCraft.Gameplay::PotionCraft.Gameplay.BoardController
+  _inputReader: {fileID: 1655440089}
   _colorCount: 5
-  _swapAnimationDuration: 0.15
-  _removeAnimationDuration: 0.12
-  _fallAnimationDuration: 0.2
+  _initialMoves: 30
+--- !u!114 &1655440091
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1655440086}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 17c4d0e6c8944b2b91d27817e3275f72, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: PotionCraft.Gameplay.View::PotionCraft.Gameplay.View.BoardView
+  _controller: {fileID: 1655440090}
+  _tilePrefab: {fileID: 0}
+  _tilesParent: {fileID: 1655440088}
+  _cellSize: 1.2
+  _originOffset: {x: 0, y: 0}
+  _tileScaleFactor: 0.9
+  _boardWidth: 8
+  _boardHeight: 8
+  _colorCount: 5
+  _initialMoves: 30
+  _swapDuration: 0.15
+  _revertDuration: 0.12
+  _destroyDuration: 0.12
+  _transmuteDuration: 0.2
+  _specialSpawnDuration: 0.18
+  _fallBaseDuration: 0.16
+  _fallPerCellDuration: 0.035
+  _fallMaxDuration: 0.5
+  _interCascadePause: 0.05
 --- !u!4 &1655440088
 Transform:
   m_ObjectHideFlags: 0
