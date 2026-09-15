@@ -14,14 +14,22 @@ namespace PotionCraft.Gameplay.View
 	/// by BoardView and never destroyed during cascades: ResetState() returns the
 	/// tile to a clean, reusable state.
 	///
-	/// The rune glyph is optional. TextMeshPro is not referenced by the
-	/// PotionCraft.Gameplay assembly definition, so the glyph field is compiled
-	/// only when the TMP_PRESENT define is set (add the Unity.TextMeshPro
-	/// assembly reference plus that define to enable accessibility runes).
+	/// Artwork comes from PotionSpriteFactory: every color owns a unique flask
+	/// silhouette with a baked-in accessibility rune, so the renderer tint stays
+	/// white and never washes the baked art out. The tint is only animated as a
+	/// transient flash during a transmutation.
+	///
+	/// The TextMeshPro glyph is an optional extra label. TextMeshPro is not
+	/// referenced by the PotionCraft.Gameplay assembly definition, so that field
+	/// is compiled only when the TMP_PRESENT define is set; the runes baked into
+	/// the sprites already cover the accessibility requirement without it.
 	/// </summary>
 	[DisallowMultipleComponent]
 	public sealed class TileView : MonoBehaviour
 	{
+		/// <summary>Tiles must render above the board slots (which use -100).</summary>
+		public const int TileSortingOrder = 0;
+
 		[SerializeField] private SpriteRenderer _renderer;
 #if TMP_PRESENT
 		[SerializeField] private TextMeshPro _glyphText; // Optional rune glyph.
@@ -64,10 +72,7 @@ namespace PotionCraft.Gameplay.View
 				_renderer = gameObject.AddComponent<SpriteRenderer>();
 			}
 
-			if (_renderer.sprite == null)
-			{
-				_renderer.sprite = GemSpriteFactory.GetGem(64);
-			}
+			_renderer.sortingOrder = TileSortingOrder;
 		}
 
 		/// <summary>Sets the base scale the tile animates back to (board cell size).</summary>
@@ -83,8 +88,7 @@ namespace PotionCraft.Gameplay.View
 
 			CurrentItem = item;
 			transform.position = worldPos;
-			_renderer.color = ColorForItem(item);
-			ApplyGlyph(item);
+			ApplyItemVisual(item);
 		}
 
 		/// <summary>Repaints the tile without moving it.</summary>
@@ -93,7 +97,20 @@ namespace PotionCraft.Gameplay.View
 			EnsureRenderer();
 
 			CurrentItem = item;
-			_renderer.color = ColorForItem(item);
+			ApplyItemVisual(item);
+		}
+
+		/// <summary>
+		/// Pulls the baked flask sprite for this item and resets the tint to white.
+		/// The sprite already carries the liquid color, the glass and the rune, so
+		/// tinting it would only dull the artwork.
+		/// </summary>
+		private void ApplyItemVisual(Item item)
+		{
+			Sprite sprite = PotionSpriteFactory.GetPotionSprite(item.Color, item.Catalyst);
+
+			_renderer.sprite = sprite;
+			_renderer.color = sprite == null ? Color.clear : Color.white;
 			ApplyGlyph(item);
 		}
 
@@ -146,8 +163,9 @@ namespace PotionCraft.Gameplay.View
 		}
 
 		/// <summary>
-		/// Reaction Catalyst transmutation: the tile pulses up, swaps its item and
-		/// color at the peak of the pulse, then settles back to its base scale.
+		/// Reaction Catalyst transmutation: the tile pulses up and flashes toward the
+		/// incoming essence color, swaps to the new flask sprite at the peak of the
+		/// pulse, then settles back to its base scale and a clean white tint.
 		/// </summary>
 		public IEnumerator AnimateTransmute(Item newItem, Color targetColor, float duration)
 		{
@@ -156,16 +174,15 @@ namespace PotionCraft.Gameplay.View
 			if (duration <= 0f)
 			{
 				CurrentItem = newItem;
-				_renderer.color = targetColor;
-				ApplyGlyph(newItem);
+				ApplyItemVisual(newItem);
 				transform.localScale = _baseScale;
 				yield break;
 			}
 
 			Color startColor = _renderer.color;
+			Color flashColor = Color.Lerp(targetColor, Color.white, 0.55f);
 			Vector3 peakScale = _baseScale * 1.25f;
 			float half = duration * 0.5f;
-			bool swapped = false;
 
 			float elapsed = 0f;
 			while (elapsed < half)
@@ -174,31 +191,31 @@ namespace PotionCraft.Gameplay.View
 				float t = Mathf.Clamp01(elapsed / half);
 				float eased = TweenEasing.EaseOutBack(t);
 				transform.localScale = Vector3.LerpUnclamped(_baseScale, peakScale, eased);
-				_renderer.color = Color.Lerp(startColor, targetColor, TweenEasing.EaseInOutQuad(t));
+				_renderer.color = Color.Lerp(startColor, flashColor, TweenEasing.EaseInOutQuad(t));
 				yield return null;
 			}
 
-			if (!swapped)
-			{
-				CurrentItem = newItem;
-				_renderer.color = targetColor;
-				ApplyGlyph(newItem);
-				swapped = true;
-			}
+			// Peak of the pulse: the vessel itself becomes the new essence.
+			CurrentItem = newItem;
+			ApplyItemVisual(newItem);
+			_renderer.color = flashColor;
 
 			elapsed = 0f;
 			while (elapsed < half)
 			{
 				elapsed += Time.deltaTime;
 				float t = Mathf.Clamp01(elapsed / half);
-				transform.localScale = Vector3.LerpUnclamped(peakScale, _baseScale, TweenEasing.EaseInOutQuad(t));
+				float eased = TweenEasing.EaseInOutQuad(t);
+				transform.localScale = Vector3.LerpUnclamped(peakScale, _baseScale, eased);
+				_renderer.color = Color.Lerp(flashColor, Color.white, eased);
 				yield return null;
 			}
 
 			transform.localScale = _baseScale;
+			_renderer.color = Color.white;
 		}
 
-		/// <summary>Clean state for the pool: base scale, no item, neutral color.</summary>
+		/// <summary>Clean state for the pool: base scale, no item, nothing rendered.</summary>
 		public void ResetState()
 		{
 			EnsureRenderer();
@@ -207,37 +224,25 @@ namespace PotionCraft.Gameplay.View
 			GridPosition = new Vector2Int(-1, -1);
 			transform.localScale = _baseScale;
 			transform.localRotation = Quaternion.identity;
+			_renderer.sprite = null;
 			_renderer.color = Color.clear;
 			ApplyGlyph(Item.Empty);
 		}
 
-		/// <summary>Board palette for the five essence colors. None renders invisible.</summary>
+		/// <summary>
+		/// Board palette for the five essence colors, used for particle tints and
+		/// transmutation flashes. None renders invisible.
+		/// </summary>
 		public static Color ColorForItem(Item item)
 		{
-			Color color;
-			switch (item.Color)
+			if (item.Color == ItemColor.None)
 			{
-				case ItemColor.Red:
-					color = new Color(0.85f, 0.2f, 0.2f);
-					break;
-				case ItemColor.Blue:
-					color = new Color(0.2f, 0.45f, 0.85f);
-					break;
-				case ItemColor.Green:
-					color = new Color(0.25f, 0.7f, 0.3f);
-					break;
-				case ItemColor.Yellow:
-					color = new Color(0.9f, 0.8f, 0.2f);
-					break;
-				case ItemColor.Purple:
-					color = new Color(0.6f, 0.3f, 0.75f);
-					break;
-				default:
-					return Color.clear;
+				return Color.clear;
 			}
 
-			// Catalyst tiles are brightened so they read as special at a glance,
-			// even before dedicated bonus art exists.
+			Color color = PotionSpriteFactory.LiquidColor(item.Color);
+
+			// Catalyst tiles read brighter, matching their energized artwork.
 			if (item.Catalyst != CatalystType.None)
 			{
 				color = Color.Lerp(color, Color.white, 0.45f);
